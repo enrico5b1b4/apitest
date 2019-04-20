@@ -2,6 +2,7 @@ package apitest
 
 import (
 	"errors"
+	"fmt"
 	"net/http"
 	"time"
 )
@@ -73,11 +74,13 @@ func (r *Recorder) AddHttpResponse(req HttpResponse) *Recorder {
 }
 
 func (r *Recorder) AddMessageRequest(m MessageRequest) *Recorder {
+	fmt.Printf("\n\n+%v\n\n", m)
 	r.Events = append(r.Events, m)
 	return r
 }
 
 func (r *Recorder) AddMessageResponse(m MessageResponse) *Recorder {
+	fmt.Printf("\n\n+%v\n\n", m)
 	r.Events = append(r.Events, m)
 	return r
 }

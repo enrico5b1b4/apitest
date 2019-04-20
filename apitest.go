@@ -20,8 +20,8 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-const systemUnderTestDefaultName = "sut"
-const consumerName = "cli"
+const SystemUnderTestDefaultName = "sut"
+const ConsumerName = "cli"
 
 var divider = strings.Repeat("-", 10)
 var requestDebugPrefix = fmt.Sprintf("%s>", divider)
@@ -458,15 +458,15 @@ func (a *APITest) report() *http.Response {
 		AddTitle(fmt.Sprintf("%s %s", capturedInboundReq.Method, capturedInboundReq.URL.String())).
 		AddSubTitle(a.name).
 		AddHttpRequest(HttpRequest{
-			Source:    quoted(consumerName),
-			Target:    quoted(systemUnderTestDefaultName),
+			Source:    quoted(ConsumerName),
+			Target:    quoted(SystemUnderTestDefaultName),
 			Value:     capturedInboundReq,
 			Timestamp: execTime,
 		})
 
 	for _, interaction := range capturedMockInteractions {
 		a.recorder.AddHttpRequest(HttpRequest{
-			Source:    quoted(systemUnderTestDefaultName),
+			Source:    quoted(SystemUnderTestDefaultName),
 			Target:    quoted(interaction.GetRequestHost()),
 			Value:     interaction.request,
 			Timestamp: interaction.timestamp,
@@ -474,7 +474,7 @@ func (a *APITest) report() *http.Response {
 		if interaction.response != nil {
 			a.recorder.AddHttpResponse(HttpResponse{
 				Source:    quoted(interaction.GetRequestHost()),
-				Target:    quoted(systemUnderTestDefaultName),
+				Target:    quoted(SystemUnderTestDefaultName),
 				Value:     interaction.response,
 				Timestamp: interaction.timestamp,
 			})
@@ -482,8 +482,8 @@ func (a *APITest) report() *http.Response {
 	}
 
 	a.recorder.AddHttpResponse(HttpResponse{
-		Source:    quoted(systemUnderTestDefaultName),
-		Target:    quoted(consumerName),
+		Source:    quoted(SystemUnderTestDefaultName),
+		Target:    quoted(ConsumerName),
 		Value:     capturedFinalRes,
 		Timestamp: finishTime,
 	})

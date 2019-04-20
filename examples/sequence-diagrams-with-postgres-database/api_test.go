@@ -1,20 +1,19 @@
 package main
 
 import (
+	"database/sql"
 	"fmt"
 	"net/http"
 	"testing"
 
 	"github.com/jmoiron/sqlx"
-	"github.com/satori/go.uuid"
+	uuid "github.com/satori/go.uuid"
 	"github.com/steinfletcher/apitest"
 )
 
 // This test requires a postgres database to run
 
 func TestGetUser_With_Default_Report_Formatter(t *testing.T) {
-	t.SkipNow()
-
 	username := uuid.NewV4().String()[0:7]
 
 	DBSetup(func(db *sqlx.DB) {
@@ -23,6 +22,7 @@ func TestGetUser_With_Default_Report_Formatter(t *testing.T) {
 	})
 
 	apiTest("gets the user").
+		Debug().
 		Mocks(getUserMock(username)).
 		Get("/user").
 		Query("name", username).
@@ -44,11 +44,19 @@ func getUserMock(username string) *apitest.Mock {
 }
 
 func apiTest(name string) *apitest.APITest {
-	testDB := NewRecordingDB()
+	recorder := apitest.NewTestRecorder()
+	recordingDriver := apitest.WrapWithRecorder("postgres", recorder)
+	sql.Register("postgresWithRecorder", recordingDriver)
+
+	testDB, err := sqlx.Connect("postgresWithRecorder", dbAddr)
+	if err != nil {
+		panic(err)
+	}
+
 	app := newApp(testDB)
 
 	return apitest.New(name).
+		Recorder(recorder).
 		Report(apitest.SequenceDiagram()).
-		RecorderHook(RecordingHook(testDB)).
 		Handler(app.Router)
 }
