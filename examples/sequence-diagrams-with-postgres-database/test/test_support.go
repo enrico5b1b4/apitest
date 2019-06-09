@@ -2,6 +2,7 @@ package test
 
 import (
 	"database/sql"
+
 	"github.com/jmoiron/sqlx"
 	"github.com/pressly/goose"
 	"github.com/steinfletcher/apitest"
