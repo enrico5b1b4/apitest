@@ -118,6 +118,26 @@ func (r *SequenceDiagramFormatter) Format(recorder *Recorder) {
 		panic(err)
 	}
 	fmt.Printf("Created sequence diagram (%s): %s\n", fileName, filepath.FromSlash(s))
+
+	jsonFileName := fmt.Sprintf("%s.meta.json", recorder.Meta["hash"])
+	err = r.fs.MkdirAll(r.storagePath, os.ModePerm)
+	if err != nil {
+		panic(err)
+	}
+	saveJSONFileTo := fmt.Sprintf("%s/%s", r.storagePath, jsonFileName)
+	jsonFile, err := r.fs.Create(saveJSONFileTo)
+	if err != nil {
+		panic(err)
+	}
+
+	metaJSON, err := json.Marshal(recorder.Meta)
+	_, err = jsonFile.Write(metaJSON)
+	if err != nil {
+		panic(err)
+	}
+
+	metaJSONFilePath, _ := filepath.Abs(saveJSONFileTo)
+	fmt.Printf("Created sequence diagram meta json (%s): %s\n", jsonFileName, filepath.FromSlash(metaJSONFilePath))
 }
 
 func SequenceDiagram(path ...string) *SequenceDiagramFormatter {
