@@ -6,6 +6,7 @@ import (
 	"io/ioutil"
 	"net/http"
 	"net/http/cookiejar"
+	"net/http/httptest"
 	"reflect"
 	"testing"
 	"time"
@@ -964,14 +965,14 @@ func TestApiTest_NoopVerifier(t *testing.T) {
 // TestRealNetworking creates a server with two endpoints, /login sets a token via a cookie and /authenticated_resource
 // validates the token. A cookie jar is used to verify session persistence across multiple apitest instances
 func TestRealNetworking(t *testing.T) {
-	srv := &http.Server{Addr: "localhost:9876"}
 	finish := make(chan struct{})
 	tokenValue := "ABCDEF"
-	http.HandleFunc("/login", func(w http.ResponseWriter, r *http.Request) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/login", func(w http.ResponseWriter, r *http.Request) {
 		http.SetCookie(w, &http.Cookie{Name: "Token", Value: tokenValue})
 		w.WriteHeader(203)
 	})
-	http.HandleFunc("/authenticated_resource", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/authenticated_resource", func(w http.ResponseWriter, r *http.Request) {
 		token, err := r.Cookie("Token")
 		if err == http.ErrNoCookie {
 			w.WriteHeader(400)
@@ -987,20 +988,10 @@ func TestRealNetworking(t *testing.T) {
 		}
 		w.WriteHeader(204)
 	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
 
 	go func() {
-		if err := srv.ListenAndServe(); err != nil {
-			panic(err)
-		}
-	}()
-
-	go func() {
-		defer func() {
-			if r := recover(); r != nil {
-				fmt.Println("Recovered in f", r)
-			}
-		}()
-
 		cookieJar, _ := cookiejar.New(nil)
 		cli := &http.Client{
 			Timeout: time.Second * 1,
@@ -1009,17 +1000,19 @@ func TestRealNetworking(t *testing.T) {
 
 		apitest.New().
 			EnableNetworking(cli).
-			Get("http://localhost:9876/login").
+			Get(srv.URL + "/login").
 			Expect(t).
 			Status(203).
 			End()
 
 		apitest.New().
 			EnableNetworking(cli).
-			Get("http://localhost:9876/authenticated_resource").
+			Get(srv.URL + "/authenticated_resource").
 			Expect(t).
 			Status(204).
 			End()
+
+		fmt.Println(srv.URL)
 
 		finish <- struct{}{}
 	}()
