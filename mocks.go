@@ -251,25 +251,27 @@ func (m *Mock) copy() *Mock {
 
 // MockRequest represents the http request side of a mock interaction
 type MockRequest struct {
-	mock               *Mock
-	url                *url.URL
-	method             string
-	headers            map[string][]string
-	basicAuthUsername  string
-	basicAuthPassword  string
-	headerPresent      []string
-	headerNotPresent   []string
-	formData           map[string][]string
-	formDataPresent    []string
-	formDataNotPresent []string
-	query              map[string][]string
-	queryPresent       []string
-	queryNotPresent    []string
-	cookie             []Cookie
-	cookiePresent      []string
-	cookieNotPresent   []string
-	body               string
-	matchers           []Matcher
+	mock                             *Mock
+	url                              *url.URL
+	method                           string
+	headers                          map[string][]string
+	basicAuthUsername                string
+	basicAuthPassword                string
+	headerPresent                    []string
+	headerNotPresent                 []string
+	formData                         map[string][]string
+	formDataPresent                  []string
+	formDataNotPresent               []string
+	multipartFormDataFieldPresent    []string
+	multipartFormDataFieldNotPresent []string
+	query                            map[string][]string
+	queryPresent                     []string
+	queryNotPresent                  []string
+	cookie                           []Cookie
+	cookiePresent                    []string
+	cookieNotPresent                 []string
+	body                             string
+	matchers                         []Matcher
 }
 
 // UnmatchedMock exposes some information about mocks that failed to match a request
@@ -551,6 +553,18 @@ func (r *MockRequest) FormDataPresent(key string) *MockRequest {
 // FormDataNotPresent configures the mock request to match when the form data is not present
 func (r *MockRequest) FormDataNotPresent(key string) *MockRequest {
 	r.formDataNotPresent = append(r.formDataNotPresent, key)
+	return r
+}
+
+// MultipartFormDataFieldPresent configures the mock request to match when the multipart form data field is present, regardless of values
+func (r *MockRequest) MultipartFormDataFieldPresent(key string) *MockRequest {
+	r.multipartFormDataFieldPresent = append(r.multipartFormDataFieldPresent, key)
+	return r
+}
+
+// MultipartFormDataFieldNotPresent configures the mock request to match when the multipart form data field is not present
+func (r *MockRequest) MultipartFormDataFieldNotPresent(key string) *MockRequest {
+	r.multipartFormDataFieldNotPresent = append(r.multipartFormDataFieldNotPresent, key)
 	return r
 }
 
@@ -978,6 +992,44 @@ var formDataNotPresentMatcher = func(req *http.Request, spec *MockRequest) error
 	return nil
 }
 
+var multipartFormDataFieldPresentMatcher = func(req *http.Request, spec *MockRequest) error {
+	if len(spec.multipartFormDataFieldPresent) > 0 {
+		r := copyHttpRequest(req)
+		if err := r.ParseMultipartForm(32 << 20); err != nil {
+			return errors.New("unable to parse multipart form data")
+		}
+
+		for _, field := range spec.multipartFormDataFieldPresent {
+			_, foundInFormValue := r.MultipartForm.Value[field]
+			_, foundInFormFile := r.MultipartForm.File[field]
+
+			if !foundInFormValue && !foundInFormFile {
+				return fmt.Errorf("expected multipart form data field '%s' not received", field)
+			}
+		}
+	}
+	return nil
+}
+
+var multipartFormDataFieldNotPresentMatcher = func(req *http.Request, spec *MockRequest) error {
+	if len(spec.multipartFormDataFieldNotPresent) > 0 {
+		r := copyHttpRequest(req)
+		if err := r.ParseMultipartForm(32 << 20); err != nil {
+			return errors.New("unable to parse multipart form data")
+		}
+
+		for _, field := range spec.multipartFormDataFieldNotPresent {
+			_, foundInFormValue := r.MultipartForm.Value[field]
+			_, foundInFormFile := r.MultipartForm.File[field]
+
+			if foundInFormValue || foundInFormFile {
+				return fmt.Errorf("did not expect a multipart form data field '%s'", field)
+			}
+		}
+	}
+	return nil
+}
+
 var cookieMatcher = func(req *http.Request, spec *MockRequest) error {
 	for _, c := range spec.cookie {
 		foundCookie, _ := req.Cookie(*c.name)
@@ -1086,6 +1138,8 @@ var defaultMatchers = []Matcher{
 	formDataMatcher,
 	formDataPresentMatcher,
 	formDataNotPresentMatcher,
+	multipartFormDataFieldPresentMatcher,
+	multipartFormDataFieldNotPresentMatcher,
 	bodyMatcher,
 	cookieMatcher,
 	cookiePresentMatcher,

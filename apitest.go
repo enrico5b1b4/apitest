@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"hash/fnv"
+	"io"
 	"io/ioutil"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"net/http/httputil"
@@ -210,19 +212,26 @@ func (a *APITest) Response() *Response {
 	return a.response
 }
 
+type MultipartFormData struct {
+	Headers textproto.MIMEHeader
+	Data    io.Reader
+}
+
 // Request is the user defined request that will be invoked on the handler under test
 type Request struct {
-	interceptor     Intercept
-	method          string
-	url             string
-	body            string
-	query           map[string][]string
-	queryCollection map[string][]string
-	headers         map[string][]string
-	formData        map[string][]string
-	cookies         []*Cookie
-	basicAuth       string
-	apiTest         *APITest
+	interceptor       Intercept
+	method            string
+	url               string
+	body              string
+	query             map[string][]string
+	queryCollection   map[string][]string
+	headers           map[string][]string
+	formData          map[string][]string
+	multipartFormData []MultipartFormData
+	multipartBoundary string
+	cookies           []*Cookie
+	basicAuth         string
+	apiTest           *APITest
 }
 
 // Intercept will be called before the request is made. Updates to the request will be reflected in the test
@@ -477,6 +486,59 @@ func (r *Request) BasicAuth(username, password string) *Request {
 func (r *Request) FormData(name string, values ...string) *Request {
 	r.ContentType("application/x-www-form-urlencoded")
 	r.formData[name] = append(r.formData[name], values...)
+	return r
+}
+
+// MultipartBoundary sets the boundary for the multipart Writer
+func (r *Request) MultipartBoundary(boundary string) *Request {
+	r.multipartBoundary = boundary
+	return r
+}
+
+// MultipartFormPart is a builder method to create a generic new multipart section
+func (r *Request) MultipartFormPart(headers map[string][]string, data io.Reader) *Request {
+	h := make(textproto.MIMEHeader)
+	for headerKey, headerValues := range headers {
+		for _, headerValue := range headerValues {
+			h.Add(headerKey, headerValue)
+		}
+	}
+
+	r.multipartFormData = append(r.multipartFormData, MultipartFormData{
+		Headers: h,
+		Data:    data,
+	})
+
+	return r
+}
+
+// MultipartFormFile is a builder method to create a new multipart section and write data into it
+func (r *Request) MultipartFormFile(fieldname string, filename string, contentType string, data io.Reader) *Request {
+	contentDisposition := fmt.Sprintf(`form-data; name="%s"; filename="%s"`, fieldname, filename)
+
+	headers := make(textproto.MIMEHeader)
+	headers.Set("Content-Disposition", contentDisposition)
+	headers.Set("Content-Type", "application/octet-stream")
+	if contentType != "" {
+		headers.Set("Content-Type", contentType)
+	}
+
+	r.MultipartFormPart(headers, data)
+
+	return r
+}
+
+// MultipartFormField is a builder method to create new multipart sections with name and values
+func (r *Request) MultipartFormField(fieldname string, values ...string) *Request {
+	contentDisposition := fmt.Sprintf(`form-data; name="%s";`, fieldname)
+
+	headers := make(textproto.MIMEHeader)
+	headers.Set("Content-Disposition", contentDisposition)
+
+	for i := range values {
+		r.MultipartFormPart(headers, strings.NewReader(values[i]))
+	}
+
 	return r
 }
 
@@ -887,6 +949,31 @@ func (a *APITest) buildRequest() *http.Request {
 			}
 		}
 		a.request.body = form.Encode()
+	}
+
+	if len(a.request.multipartFormData) > 0 {
+		var b bytes.Buffer
+		mpWriter := multipart.NewWriter(&b)
+
+		if a.request.multipartBoundary != "" {
+			mpWriter.SetBoundary(a.request.multipartBoundary)
+		}
+
+		for _, multipartFormData := range a.request.multipartFormData {
+			pw, err := mpWriter.CreatePart(multipartFormData.Headers)
+			if err != nil {
+				a.t.Fatal(err)
+			}
+
+			_, err = io.Copy(pw, multipartFormData.Data)
+			if err != nil {
+				a.t.Fatal(err)
+			}
+		}
+		mpWriter.Close()
+
+		a.request.headers["Content-Type"] = []string{mpWriter.FormDataContentType()}
+		a.request.body = b.String()
 	}
 
 	req, _ := http.NewRequest(a.request.method, a.request.url, bytes.NewBufferString(a.request.body))

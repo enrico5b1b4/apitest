@@ -1,10 +1,13 @@
 package apitest
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"io/ioutil"
+	"mime/multipart"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -526,7 +529,7 @@ func TestMocks_FormDataPresent(t *testing.T) {
 		expectedError              error
 	}{
 		{"single form data key present", map[string]string{"a": "1", "b": "1"}, []string{"a"}, nil},
-		{"multiple form data key present", map[string]string{"a": "1", "b": "1"}, []string{"a", "b"}, nil},
+		{"multiple form data keys present", map[string]string{"a": "1", "b": "1"}, []string{"a", "b"}, nil},
 		{"error when no form data present", map[string]string{}, []string{"a"}, errors.New("expected form data key a not received")},
 		{"error when form data key not found", map[string]string{"b": "1", "c": "1"}, []string{"a"}, errors.New("expected form data key a not received")},
 	}
@@ -560,7 +563,7 @@ func TestMocks_FormDataNotPresent(t *testing.T) {
 		expectedError                 error
 	}{
 		{"single form data key not present", map[string]string{"a": "1", "b": "1"}, []string{"c"}, nil},
-		{"multiple form data key not present", map[string]string{"a": "1", "b": "1"}, []string{"d", "e"}, nil},
+		{"multiple form data keys not present", map[string]string{"a": "1", "b": "1"}, []string{"d", "e"}, nil},
 		{"no form data present", map[string]string{}, []string{"a"}, nil},
 		{"error when form data key found", map[string]string{"a": "1", "b": "1"}, []string{"a"}, errors.New("did not expect a form data key a")},
 	}
@@ -581,6 +584,216 @@ func TestMocks_FormDataNotPresent(t *testing.T) {
 
 			matchError := formDataNotPresentMatcher(req, mockRequest)
 
+			assert.Equal(t, test.expectedError, matchError)
+		})
+	}
+}
+
+func TestMocks_MultipartFormDataFieldPresent(t *testing.T) {
+	tests := []struct {
+		name                         string
+		requestFormDataField         map[string]string
+		requestFormDataFile          map[string]string
+		expectedFormDataFieldPresent []string
+		expectedError                error
+	}{
+		{
+			"single multipart form data field present",
+			map[string]string{"a": "1", "b": "1"},
+			map[string]string{},
+			[]string{"a"},
+			nil,
+		},
+		{
+			"single multipart form data file present",
+			map[string]string{},
+			map[string]string{"a": "1", "b": "1"},
+			[]string{"a"},
+			nil,
+		},
+		{
+			"multiple multipart form data fields present",
+			map[string]string{"a": "1", "b": "1"},
+			map[string]string{},
+			[]string{"a", "b"},
+			nil,
+		},
+		{
+			"multiple multipart form data files present",
+			map[string]string{},
+			map[string]string{"a": "1", "b": "1"},
+			[]string{"a", "b"},
+			nil,
+		},
+		{
+			"error when no multipart form data present",
+			map[string]string{},
+			map[string]string{},
+			[]string{"a"},
+			errors.New("expected multipart form data field 'a' not received"),
+		},
+		{
+			"error when multipart form data field not found",
+			map[string]string{"b": "1", "c": "1"},
+			map[string]string{},
+			[]string{"a"},
+			errors.New("expected multipart form data field 'a' not received"),
+		},
+		{
+			"error when multipart form data file not found",
+			map[string]string{},
+			map[string]string{"b": "1", "c": "1"},
+			[]string{"a"},
+			errors.New("expected multipart form data field 'a' not received"),
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			// Build multipart form request
+			var b bytes.Buffer
+			mpWriter := multipart.NewWriter(&b)
+
+			for fieldname, fieldvalue := range test.requestFormDataField {
+				pw, err := mpWriter.CreateFormField(fieldname)
+				if err != nil {
+					assert.NoError(t, err)
+				}
+
+				_, err = io.Copy(pw, strings.NewReader(fieldvalue))
+				if err != nil {
+					assert.NoError(t, err)
+				}
+			}
+			for fieldname, fieldvalue := range test.requestFormDataFile {
+				filename := fmt.Sprintf("filename-%s", fieldname)
+				pw, err := mpWriter.CreateFormFile(fieldname, filename)
+				if err != nil {
+					assert.NoError(t, err)
+				}
+
+				_, err = io.Copy(pw, strings.NewReader(fieldvalue))
+				if err != nil {
+					assert.NoError(t, err)
+				}
+			}
+			mpWriter.Close()
+
+			req := httptest.NewRequest(http.MethodPost, "http://test.com/v1/path", strings.NewReader(b.String()))
+			req.Header.Add("Content-Type", mpWriter.FormDataContentType())
+
+			// Mock setup
+			mockRequest := NewMock().Debug().Post("http://test.com/v1/path")
+			for _, key := range test.expectedFormDataFieldPresent {
+				mockRequest.MultipartFormDataFieldPresent(key)
+			}
+
+			matchError := multipartFormDataFieldPresentMatcher(req, mockRequest)
+			assert.Equal(t, test.expectedError, matchError)
+		})
+	}
+}
+
+func TestMocks_MultipartFormDataFieldNotPresent(t *testing.T) {
+	tests := []struct {
+		name                            string
+		requestFormDataField            map[string]string
+		requestFormDataFile             map[string]string
+		expectedFormDataFieldNotPresent []string
+		expectedError                   error
+	}{
+		{
+			"single multipart form data field not present",
+			map[string]string{"a": "1", "b": "1"},
+			map[string]string{},
+			[]string{"c"},
+			nil,
+		},
+		{
+			"single multipart form data file not present",
+			map[string]string{},
+			map[string]string{"a": "1", "b": "1"},
+			[]string{"c"},
+			nil,
+		},
+		{
+			"multiple multipart form data fields not present",
+			map[string]string{"a": "1", "b": "1"},
+			map[string]string{},
+			[]string{"d", "e"},
+			nil,
+		},
+		{
+			"multiple multipart form data files not present",
+			map[string]string{},
+			map[string]string{"a": "1", "b": "1"},
+			[]string{"d", "e"},
+			nil,
+		},
+		{
+			"no multipart form data field present",
+			map[string]string{},
+			map[string]string{},
+			[]string{"a"},
+			nil,
+		},
+		{
+			"error when multipart form data field found",
+			map[string]string{"a": "1", "b": "1"},
+			map[string]string{},
+			[]string{"a"},
+			errors.New("did not expect a multipart form data field 'a'"),
+		},
+		{
+			"error when multipart form data file found",
+			map[string]string{},
+			map[string]string{"a": "1", "b": "1"},
+			[]string{"a"},
+			errors.New("did not expect a multipart form data field 'a'"),
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			// Build multipart form request
+			var b bytes.Buffer
+			mpWriter := multipart.NewWriter(&b)
+
+			for fieldname, fieldvalue := range test.requestFormDataField {
+				pw, err := mpWriter.CreateFormField(fieldname)
+				if err != nil {
+					assert.NoError(t, err)
+				}
+
+				_, err = io.Copy(pw, strings.NewReader(fieldvalue))
+				if err != nil {
+					assert.NoError(t, err)
+				}
+			}
+			for fieldname, fieldvalue := range test.requestFormDataFile {
+				filename := fmt.Sprintf("filename-%s", fieldname)
+				pw, err := mpWriter.CreateFormFile(fieldname, filename)
+				if err != nil {
+					assert.NoError(t, err)
+				}
+
+				_, err = io.Copy(pw, strings.NewReader(fieldvalue))
+				if err != nil {
+					assert.NoError(t, err)
+				}
+			}
+			mpWriter.Close()
+
+			req := httptest.NewRequest(http.MethodPost, "http://test.com/v1/path", strings.NewReader(b.String()))
+			req.Header.Add("Content-Type", mpWriter.FormDataContentType())
+
+			// Mock setup
+			mockRequest := NewMock().Debug().Post("http://test.com/v1/path")
+			for _, key := range test.expectedFormDataFieldNotPresent {
+				mockRequest.MultipartFormDataFieldNotPresent(key)
+			}
+
+			matchError := multipartFormDataFieldNotPresentMatcher(req, mockRequest)
 			assert.Equal(t, test.expectedError, matchError)
 		})
 	}
